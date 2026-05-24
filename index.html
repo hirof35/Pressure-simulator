@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Go 圧力シミュレーター WebUI</title>
+    <style>
+        body { background: #111; color: white; text-align: center; font-family: sans-serif; }
+        canvas { border: 2px solid #444; background: black; cursor: crosshair; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+    </style>
+</head>
+<body>
+    <h1>Go 圧力シミュレーター</h1>
+    <p>キャンバス内をクリック・ドラッグすると、そこに圧力を注入できます</p>
+    <canvas id="simCanvas" width="600" height="400"></canvas>
+
+    <script>
+        const canvas = document.getElementById("simCanvas");
+        const ctx = canvas.getContext("2d");
+        const cols = 60;
+        const rows = 40;
+        const cellWidth = canvas.width / cols;
+        const cellHeight = canvas.height / rows;
+
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+        ws.onmessage = (event) => {
+            const grid = JSON.parse(event.data);
+            draw(grid);
+        };
+
+        function draw(grid) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            for (let y = 0; y < grid.length; y++) {
+                for (let x = 0; x < grid[y].length; x++) {
+                    const p = grid[y][x];
+                    
+                    // 【改善】HSLカラーを使って滑らかなレインボー/ヒートマップにする
+                    // 圧力が高い(200以上) -> 赤 (Hue: 0)
+                    // 圧力がゼロ -> 青 (Hue: 240)
+                    let hue = 240 - Math.min(240, p * 1.2); 
+                    
+                    // 圧力がほぼゼロの場所は真っ黒にするための輝度(Lightness)調整
+                    let lightness = Math.min(50, p * 2);
+                    
+                    ctx.fillStyle = `hsl(${hue}, 100%, ${lightness}%)`;
+                    // 隙間をなくすために少し大きめに描画（+0.5）
+                    ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth + 0.5, cellHeight + 0.5);
+                }
+            }
+        }
+
+        // マウスを押している間、座標をサーバーに送信する関数
+        function sendClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = Math.floor((e.clientX - rect.left) / cellWidth);
+            const clickY = Math.floor((e.clientY - rect.top) / cellHeight);
+            
+            if (clickX >= 0 && clickX < cols && clickY >= 0 && clickY < rows) {
+                ws.send(JSON.stringify({type: "click", x: clickX, y: clickY}));
+            }
+        }
+
+        // ドラッグでの連続注入に対応
+        let isDrawing = false;
+        canvas.addEventListener("mousedown", (e) => { isDrawing = true; sendClick(e); });
+        canvas.addEventListener("mousemove", (e) => { if (isDrawing) sendClick(e); });
+        window.addEventListener("mouseup", () => { isDrawing = false; });
+    </script>
+</body>
+</html>
